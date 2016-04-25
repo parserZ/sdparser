@@ -21,6 +21,7 @@ set (clnndep_SRC
      nndep.cpp
      ParsingSystem.cpp
      ParsingSystem.h
+     SecondHead.h
      ThreadPool.h
      time.h
      Util.h)
