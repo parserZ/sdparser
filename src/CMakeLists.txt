@@ -1,10 +1,8 @@
 include_directories (./utils)
 
 set (clnndep_SRC
-     ArcStandard.cpp
-     ArcStandard.h
-     NonProjNivre.cpp
-     NonProjNivre.h
+     ArcEager.cpp
+     ArcEager.h
      Classifier.cpp
      Classifier.h
      Config.cpp
@@ -17,8 +15,8 @@ set (clnndep_SRC
      DependencyParser.h
      DependencySent.cpp
      DependencySent.h
-     DependencyTree.cpp
-     DependencyTree.h
+     DependencyGraph.cpp
+     DependencyGraph.h
      fastexp.h
      nndep.cpp
      ParsingSystem.cpp
@@ -27,5 +25,5 @@ set (clnndep_SRC
      time.h
      Util.h)
 
-add_executable (clnndep ${clnndep_SRC})
+add_executable (eagernndep ${clnndep_SRC})
 

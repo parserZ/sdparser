@@ -7,7 +7,8 @@
 
 #include "Configuration.h"
 #include "DependencySent.h"
-#include "DependencyTree.h"
+//#include "DependencyTree.h"
+#include "DependencyGraph.h"
 #include "Config.h"
 
 class ParsingSystem
@@ -21,14 +22,14 @@ class ParsingSystem
 
         void evaluate(
                 std::vector<DependencySent>& sents,
-                std::vector<DependencyTree>& pred_trees,
-                std::vector<DependencyTree>& gold_trees,
+                std::vector<DependencyGraph>& pred_graphs,
+                std::vector<DependencyGraph>& gold_graphs,
                 std::map<std::string, double>& result);
 
         double get_uas_score(
                 std::vector<DependencySent>& sents,
-                std::vector<DependencyTree>& pred_trees,
-                std::vector<DependencyTree>& gold_trees);
+                std::vector<DependencyGraph>& pred_graphs,
+                std::vector<DependencyGraph>& gold_graphs);
 
         std::set<std::string> get_punctuation_tags();
         std::set<std::string> get_conll_sub_obj_relations();
@@ -44,15 +45,15 @@ class ParsingSystem
 
         virtual const std::string get_oracle(
                 Configuration& c,
-                DependencyTree& tree) = 0;
+                DependencyGraph& graph) = 0;
 
         virtual bool is_oracle(
                 Configuration& c,
                 std::string& t,
-                DependencyTree& tree) = 0;
+                DependencyGraph& graph) = 0;
 
         virtual bool can_process(
-                DependencyTree& tree) = 0;
+                DependencyGraph& graph) = 0;
 
         virtual Configuration init_configuration(
                 DependencySent& sent) = 0;

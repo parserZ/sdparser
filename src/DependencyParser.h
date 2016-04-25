@@ -65,28 +65,29 @@ class DependencyParser
                 std::string & output_file,
                 bool re_precompute = false);
 
-        void gen_dictionaries(
+        void gen_dictionaries_graph(
                 std::vector<DependencySent> & sents,
-                std::vector<DependencyTree> & trees);
+                std::vector<DependencyGraph> & graphs);
 
         void collect_dynamic_features(
                 std::vector<DependencySent> & sents,
-                std::vector<DependencyTree> & trees);
+                std::vector<DependencyGraph> & graphs);
 
         void setup_classifier_for_training(
                 std::vector<DependencySent> & sents,
-                std::vector<DependencyTree> & trees,
+                std::vector<DependencyGraph> & graphs,
                 const char * embed_file,
                 const char * premodel_file);
 
         void read_embed_file(const char * embed_file);
 
-        Dataset gen_train_samples(
+        Dataset gen_train_samples_graph(
                 std::vector<DependencySent> & sents,
-                std::vector<DependencyTree> & trees);
+                std::vector<DependencyGraph> & graphs);
+
         void scan_test_samples(
                 std::vector<DependencySent> & sents,
-                std::vector<DependencyTree> & trees,
+                std::vector<DependencyGraph> & graphs,
                 std::vector<int> & precompute_ids);
 
         void save_model(const char * filename);
@@ -100,12 +101,12 @@ class DependencyParser
                 const std::string & filename,
                 const std::string & clemb);
 
-        void predict(
+        void predict_graph(
                 std::vector<DependencySent>& sents,
-                std::vector<DependencyTree>& trees);
-        void predict(
+                std::vector<DependencyGraph>& graphs);
+        void predict_graph(
                 DependencySent& sent,
-                DependencyTree& tree);
+                DependencyGraph& graph);
 
         std::vector<int> get_features(Configuration& c);
         // Vec<int> get_features_array(Configuration& c);
@@ -118,6 +119,10 @@ class DependencyParser
         int get_valency_id(const std::string & v);
 
         int get_cluster_id(const std::string & c);
+
+        void process_headless(Configuration& c);
+        void process_headless_search_all(int k, std::vector<Snd_head>& cand_2nd_heads, Configuration& c, int dir);
+        void get_best_label(Configuration c, std::string & opt_label, double & opt_score, int arc_dir); // arc_dir is the arc direction
 
     private:
         void generate_ids();

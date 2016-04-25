@@ -85,10 +85,10 @@ void print_usage()
          << "\t-actseq <file>\n"
          << "\t\tUse <file> for extacting oracle sequences\n"
          << "\nExample(train):\n"
-         << "./nndep -train data/train.dep -dev data/dev.dep"
+         << "./eagernndep -train data/train.dep -dev data/dev.dep"
          <<        " -model model -emb data/words.emb -cfg nndep.cfg\n"
          << "\nExample(test):\n"
-         << "./nndep -test data/test.dep -model model\n\n";
+         << "./eagernndep -test data/test.dep -model model\n\n";
 }
 
 int arg_pos(char * str, int argc, char ** argv)

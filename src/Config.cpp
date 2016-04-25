@@ -48,12 +48,12 @@ void Config::init()
     phidden_size            = 50;
     embedding_size          = 50;
 
-    num_tokens              = 48;
+    num_tokens              = 44;
 
-    num_basic_tokens        = 48;
+    num_basic_tokens        = 44;
     num_const_tokens        = 0;
-    num_word_tokens         = 18;
-    num_pos_tokens          = 18;
+    num_word_tokens         = 16;
+    num_pos_tokens          = 16;
     num_label_tokens        = 12;
 
     num_dist_tokens         = 1;
@@ -67,7 +67,7 @@ void Config::init()
     fix_word_embeddings     = false;
     delexicalized           = false;
     use_pretrained          = false;
-    oracle                  = "arcstandard"; // "nivre09"
+    oracle                  = "arceager"; // "nivre09"
     labeled                 = true;
     use_distance            = false;
     distance_embedding_size = 10;

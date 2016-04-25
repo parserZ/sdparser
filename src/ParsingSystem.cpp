@@ -88,13 +88,13 @@ void ParsingSystem::set_language(const string & s)
 
 void ParsingSystem::evaluate(
         vector<DependencySent>& sents,
-        vector<DependencyTree>& pred_trees,
-        vector<DependencyTree>& gold_trees,
+        vector<DependencyGraph>& pred_graphs,
+        vector<DependencyGraph>& gold_graphs,
         map<string, double>& result)
 {
     result.clear();
 
-    if (pred_trees.size() != gold_trees.size())
+    if (pred_graphs.size() != gold_graphs.size())
     {
         cerr << "Error: incorrect number of trees"
              << endl;
@@ -120,12 +120,21 @@ void ParsingSystem::evaluate(
     int correct_trees_wo_punc = 0;
     int correct_root = 0;
 
-    int sum_arcs = 0;
-    int sum_arcs_wo_punc = 0;
+    int sum_gold_arcs = 0;
+    int sum_gold_arcs_wo_punc = 0;
+    int sum_pred_arcs = 0;
+    int sum_pred_arcs_wo_punc =0;
 
-    for (size_t i = 0; i < pred_trees.size(); ++i)
+    int correct_non_local_arcs = 0;
+    int correct_non_local_heads = 0;
+
+    int sum_non_local_gold_arcs = 0;
+    int sum_non_local_pred_arcs = 0;
+    
+
+    for (size_t i = 0; i < pred_graphs.size(); ++i)
     {
-        if (sents[i].n != pred_trees[i].n)
+        if (sents[i].n != pred_graphs[i].n)
         {
             cerr << "Error: Tree "
                  << (i + 1)
@@ -133,81 +142,124 @@ void ParsingSystem::evaluate(
                  << endl;
             return ;
         }
-
-        if (!pred_trees[i].is_tree())
+        /*
+        if (!pred_graphs[i].is_tree())
         {
             cerr << "Error: Tree "
                  << (i + 1)
                  << " is illegal"
                  << endl;
             return ;
-        }
+        }*/
 
         int n_correct_head = 0;
         int n_correct_head_wo_punc = 0;
         int non_punc = 0;
 
-        for (int j = 1; j <= pred_trees[i].n; ++j)
+        for (int j = 1; j <= pred_graphs[i].n; ++j)
         {
-            if (pred_trees[i].get_head(j) == gold_trees[i].get_head(j))
-            {
-                ++ correct_heads;
-                ++ n_correct_head;
-                if (pred_trees[i].get_label(j) == gold_trees[i].get_label(j))
-                    ++ correct_arcs;
+            std::vector<int> gold_heads = gold_graphs[i].get_head(j);
+            std::vector<std::string> gold_labels = gold_graphs[i].get_label(j);
+            std::vector<int> pred_heads = pred_graphs[i].get_head(j);
+            sum_pred_arcs += pred_heads.size();
+            sum_gold_arcs += gold_heads.size();
+            for (int m=0; m < (int)gold_heads.size(); m++){
+                if (pred_graphs[i].has_head(j, gold_heads[m]))
+                {
+                    ++ correct_heads;
+                    ++ n_correct_head;
+                    if (pred_graphs[i].get_arc_label(j, gold_heads[m]) == gold_labels[m])
+                        ++ correct_arcs;
+                }
+                //++ sum_gold_arcs;
             }
-            ++ sum_arcs;
-
             string tag = sents[i].poss[j-1];
+
             if (punc_tags.find(tag) == punc_tags.end())
             {
-                ++ sum_arcs_wo_punc;
-                ++ non_punc;
-                if (pred_trees[i].get_head(j) == gold_trees[i].get_head(j))
-                {
-                    ++ correct_heads_wo_punc;
-                    ++ n_correct_head_wo_punc;
-                    if (pred_trees[i].get_label(j) == gold_trees[i].get_label(j))
-                        ++ correct_arcs_wo_punc;
+                sum_gold_arcs_wo_punc += gold_heads.size();
+                sum_pred_arcs_wo_punc += pred_heads.size();
+                non_punc += gold_heads.size();
+                for (int m=0; m < (int)gold_heads.size(); m++){
+                    if (pred_graphs[i].has_head(j, gold_heads[m]))
+                    {
+                        ++ correct_heads_wo_punc;
+                        ++ n_correct_head_wo_punc;
+                        if (pred_graphs[i].get_arc_label(j, gold_heads[m]) == gold_labels[m])
+                            ++ correct_arcs_wo_punc;
+                    }
+                //++ sum_arcs;
                 }
             }
 
-            string gold_rel = gold_trees[i].get_label(j);
-            if (sub_obj_relations.find(gold_rel) != sub_obj_relations.end())
+            if (gold_heads.size() > 1 || pred_heads.size() > 1)
             {
-                ++ sum_arcs_sub_obj;
-                if (pred_trees[i].get_head(j) == gold_trees[i].get_head(j))
-                    ++ correct_heads_sub_obj;
+                sum_non_local_gold_arcs += gold_heads.size();
+                sum_non_local_pred_arcs += pred_heads.size();
+                for (int m=0; m < (int)gold_heads.size(); m++){
+                    if (pred_graphs[i].has_head(j, gold_heads[m]))
+                    {
+                        ++ correct_non_local_heads;
+                        if (pred_graphs[i].get_arc_label(j, gold_heads[m]) == gold_labels[m])
+                            ++ correct_non_local_arcs;
+                    }
+                //++ sum_arcs;
+                }
+            }
+
+            for (int m=0; m < (int)gold_heads.size(); m++){
+                string gold_rel = gold_labels[m];
+                if (sub_obj_relations.find(gold_rel) != sub_obj_relations.end())
+                {
+                    ++ sum_arcs_sub_obj;
+                    if (pred_graphs[i].has_head(j, gold_heads[m]))
+                        ++ correct_heads_sub_obj;
+                }
             }
         }
 
-        if (n_correct_head == pred_trees[i].n)
+        if (n_correct_head == pred_graphs[i].arc_n)
             ++ correct_trees;
         if (non_punc == n_correct_head_wo_punc)
             ++ correct_trees_wo_punc;
-        if (pred_trees[i].get_root() == gold_trees[i].get_root())
+        if (pred_graphs[i].get_root() == gold_graphs[i].get_root())
             ++ correct_root;
     }
 
+    result["UR"] = correct_heads_wo_punc * 100.0 / sum_gold_arcs_wo_punc;
+    result["UP"] = correct_heads_wo_punc * 100.0 / sum_pred_arcs_wo_punc;
+    result["UF"] = 2 * result["UR"] * result["UP"] / (result["UR"] + result["UP"]);
+    result["LR"] = correct_arcs_wo_punc * 100.0 / sum_gold_arcs_wo_punc;
+    result["LP"] = correct_arcs_wo_punc * 100.0 / sum_pred_arcs_wo_punc;
+    result["LF"] = 2 * result["LR"] * result["LP"] / (result["LR"] + result["LP"]);
+    result["NUR"] = correct_non_local_heads * 100.0 / sum_non_local_gold_arcs;
+    result["NUP"] = correct_non_local_heads * 100.0 / sum_non_local_pred_arcs;
+    result["NUF"] = 2 * result["NUR"] * result["NUP"] / (result["NUR"] + result["NUP"]);
+    result["NLR"] = correct_non_local_arcs * 100.0 / sum_non_local_gold_arcs;
+    result["NLP"] = correct_non_local_arcs * 100.0 / sum_non_local_pred_arcs;
+    result["NLF"] = 2 * result["NLR"] * result["NLP"] / (result["NLR"] + result["NLP"]);
+
+    /*
     result["UAS"] = correct_heads * 100.0 / sum_arcs;
     result["UASwoPunc"] = correct_heads_wo_punc * 100.0 / sum_arcs_wo_punc;
     result["LAS"] = correct_arcs  * 100.0 / sum_arcs;
     result["LASwoPunc"] = correct_arcs_wo_punc  * 100.0 / sum_arcs_wo_punc;
 
-    result["UEM"] = correct_trees * 100.0 / pred_trees.size();
-    result["UEMwoPunc"] = correct_trees_wo_punc * 100.0 / pred_trees.size();
-    result["ROOT"] = correct_root * 100.0 / pred_trees.size();
+    result["UEM"] = correct_trees * 100.0 / pred_graphs.size();
+    result["UEMwoPunc"] = correct_trees_wo_punc * 100.0 / pred_graphs.size();
+    */
+    result["ROOT"] = correct_root * 100.0 / pred_graphs.size();
 
     result["SOUAS"] = correct_heads_sub_obj * 100.0 / sum_arcs_sub_obj;
 }
 
 double ParsingSystem::get_uas_score(
         vector<DependencySent>& sents,
-        vector<DependencyTree>& pred_trees,
-        vector<DependencyTree>& gold_trees)
+        vector<DependencyGraph>& pred_graphs,
+        vector<DependencyGraph>& gold_graphs)
 {
     map<string, double> result;
-    evaluate(sents, pred_trees, gold_trees, result);
+    evaluate(sents, pred_graphs, gold_graphs, result);
 
     if ( result.empty() ||
             result.find("UASwoPunc") == result.end())

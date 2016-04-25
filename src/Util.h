@@ -12,6 +12,7 @@
 
 #include "DependencySent.h"
 #include "DependencyTree.h"
+#include "DependencyGraph.h"
 #include "Config.h"
 #include "strutils.h"
 #include "math/mat.h"
@@ -135,6 +136,93 @@ class Util
             return (double)rand() / (double)RAND_MAX;
         }
 
+        static void load_conll_file_graph(
+                const char * file,
+                std::vector<DependencySent>& sents,
+                std::vector<DependencyGraph>& graphs,
+                bool labeled)
+        {
+            std::ifstream conll_reader(file);
+            int non_local_arc_cnt = 0;
+            if (conll_reader.fail())
+            {
+                std::cerr << "# fail to open conll file: "
+                          << file
+                          << std::endl;
+                return ;
+            }
+
+            DependencySent sent;
+            DependencyGraph graph;
+            std::string line;
+
+            int i = 0;
+            while (getline(conll_reader, line))
+            {
+                std::cerr << "\r" << i++;
+                // getline(conll_reader, line);
+                std::vector<std::string> sep = split(line);
+                if (sep.size() < 10) // end of a sentence
+                {
+                   // tree.cal_projective_order_and_mpc(); // better to put somewhere else
+                    sents.push_back(sent);
+                    graphs.push_back(graph);
+
+                    sent.init();
+                    graph.init();
+                }
+                else
+                {
+                    int id = to_int(sep[0]);
+                    std::string word   = sep[1];
+                    std::string pos    = sep[3];
+                    // std::string pos   = sep[4];
+                    std::string cluster = sep[5];
+                    std::string deprel = sep[7];
+                    int head = to_int(sep[6]);
+                    // std::string deprel = sep[9];
+                    // int head = to_int(sep[8]);
+                    //std::cerr << id << std::endl;
+                    if (id == sent.n+1){
+                        sent.add(word, pos, cluster);
+                        std::vector<int> h;
+                        std::vector<std::string> l;
+                        h.push_back(head);
+                        if (labeled){
+                            l.push_back(deprel);
+                            graph.add(h, l);
+                        }
+                        else{ // currently unused
+                            l.push_back(Config::UNKNOWN);
+                            graph.add(h, l);
+                        }
+                    }
+                    else if (id == sent.n){
+                        non_local_arc_cnt ++;
+                        if (labeled)
+                            graph.set(id, head, deprel);
+                        else // currently unused
+                            graph.set(id, head, Config::UNKNOWN);
+                    }
+                    else{
+                        std::cerr << "# error loading graph!"<<std::endl;
+                    }
+                    
+                }
+            }
+            std::cerr << std::endl;
+            conll_reader.close();
+            std::cerr << "sentences number:" << sents.size() << "  non-local arc number:" << non_local_arc_cnt << std::endl;
+        }
+
+        static void load_conll_file_graph(
+                const char * file,
+                std::vector<DependencySent>& sents,
+                std::vector<DependencyGraph>& graphs)
+        {
+            load_conll_file_graph(file, sents, graphs, true);
+        }
+
         static void load_conll_file(
                 const char * file,
                 std::vector<DependencySent>& sents,
@@ -197,6 +285,32 @@ class Util
                 std::vector<DependencyTree>& trees)
         {
             load_conll_file(file, sents, trees, true);
+        }
+
+        static void write_conll_file_graph(
+                const char * file,
+                std::vector<DependencySent>& sents,
+                std::vector<DependencyGraph>& graphs)
+        {
+            std::ofstream conll_writer(file);
+            
+            for (size_t i = 0; i < sents.size(); ++i)
+            {
+                for (int j = 0; j < sents[i].n; ++j){//node j
+                    std::vector<int> head = graphs[i].get_head(j+1);
+                    for (int k = 0; k < head.size(); ++k){
+                        conll_writer << j + 1 << "\t"
+                                 << sents[i].words[j] << "\t_\t"
+                                 << sents[i].poss[j] << "\t_\t_\t"
+                                 << head[k] << "\t"
+                                 << graphs[i].get_arc_label(j + 1, head[k]) << "\t"
+                                 << "_\t_\n";
+                    }
+                }
+                conll_writer << "\n";
+            }
+
+            conll_writer.close();
         }
 
         static void write_conll_file(

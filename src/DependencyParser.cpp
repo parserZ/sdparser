@@ -6,8 +6,10 @@
 #include <cmath>
 #include <cassert>
 
-#include "ArcStandard.h"
-#include "NonProjNivre.h"
+//#include "ArcStandard.h"
+//#include "NonProjNivre.h"
+//#include "AttachSystem.h"
+#include "ArcEager.h"
 #include "DependencyParser.h"
 #include "Util.h"
 #include "Config.h"
@@ -79,11 +81,12 @@ void DependencyParser::train(
     /**
      * collect training instances from train_file
      */
-    vector<DependencyTree> train_trees;
+    //vector<DependencyTree> train_trees;
+    vector<DependencyGraph> train_graphs;
     vector<DependencySent> train_sents;
 
     cerr << "Loading training file (conll)" << endl;
-    Util::load_conll_file(train_file, train_sents, train_trees, config.labeled);
+    Util::load_conll_file_graph(train_file, train_sents, train_graphs, config.labeled);
     if (sub_sampling != -1 && (unsigned)sub_sampling < train_sents.size())
     {
         // vector<DependencySent>::const_iterator s_beg = train_sents.begin();
@@ -94,22 +97,23 @@ void DependencyParser::train(
 
         // vector<DependencyTree>::const_iterator t_beg = train_trees.begin();
         // vector<DependencyTree>::const_iterator t_end = train_trees.begin() + sub_sampling;
-        auto t_beg = train_trees.begin();
-        auto t_end = train_trees.begin() + sub_sampling;
-        train_trees = vector<DependencyTree>(t_beg, t_end);
+        auto t_beg = train_graphs.begin();
+        auto t_end = train_graphs.begin() + sub_sampling;
+        train_graphs = vector<DependencyGraph>(t_beg, t_end);
 
         cerr << "Sub-sampling " << sub_sampling << " sentences/trees for training." << endl;
     }
 
-    Util::print_tree_stats(train_trees);
+    //Util::print_tree_stats(train_trees); //to be done
 
-    vector<DependencyTree> dev_trees;
+    //vector<DependencyTree> dev_trees;
+    vector<DependencyGraph> dev_graphs;
     vector<DependencySent> dev_sents;
     if (dev_file[0] != 0)
     {
         cerr << "Loading devel file (conll)" << endl;
-        Util::load_conll_file(dev_file, dev_sents, dev_trees, config.labeled);
-        Util::print_tree_stats(dev_trees);
+        Util::load_conll_file_graph(dev_file, dev_sents, dev_graphs, config.labeled);
+        //Util::print_tree_stats(dev_trees); //to be done
     }
 
 
@@ -122,18 +126,16 @@ void DependencyParser::train(
      * fill @known_words, @known_poss, @known_labels
      */
     cerr << "Generating dictionaries" << endl;
-    gen_dictionaries(train_sents, train_trees);
+    gen_dictionaries_graph(train_sents, train_graphs);
 
     // TODO
     vector<string> ldict = known_labels;
     if (config.labeled) ldict.pop_back(); // remove the NIL label
-    if (config.oracle == "arcstandard")
-        system = new ArcStandard(ldict, config.language, config.labeled);
-    else if (config.oracle == "nivre09")
-        system = new NonProjNivre(ldict, config.language, config.labeled);
+    if (config.oracle == "arceager")
+        system =  new ArcEager(ldict, config.language, config.labeled);
 
     cerr << "Setup classifier for training" << endl;
-    setup_classifier_for_training(train_sents, train_trees, embed_file, premodel_file);
+    setup_classifier_for_training(train_sents, train_graphs, embed_file, premodel_file);
     config.print_info();
 
     /**
@@ -148,7 +150,8 @@ void DependencyParser::train(
 
     save_model(string(model_file) + ".0"); // initial model
 
-    double best_uas = -DBL_MAX;
+    //double best_uas = -DBL_MAX;
+    double best_lf = -DBL_MAX;
     for (int iter = 1; iter <= config.max_iter; ++iter)
     {
         /**
@@ -176,26 +179,35 @@ void DependencyParser::train(
         if (dev_file[0] != 0 && iter % config.eval_per_iter == 0)
         {
             classifier->pre_compute(); // with updated weights
-            vector<DependencyTree> predicted;
-            predict(dev_sents, predicted);
+            vector<DependencyGraph> predicted;
+            predict_graph(dev_sents, predicted);
 
             map<string, double> result;
-            system->evaluate(dev_sents, predicted, dev_trees, result);
-            double uas = result["UASwoPunc"];
-            double las = result["LASwoPunc"];
-            double uem = result["UEMwoPunc"];
+            system->evaluate(dev_sents, predicted, dev_graphs, result);
+            //double uas = result["UASwoPunc"];
+            //double las = result["LASwoPunc"];
+            //double uem = result["UEMwoPunc"];
             double root = result["ROOT"];
 
-            cerr << "UAS(dev) = " << uas << "%" << endl;
-            cerr << "LAS(dev) = " << las << "%" << endl;
-            cerr << "UEM(dev) = " << uem << "%" << endl;
+            double LF = result["LF"];
+            double UF = result["UF"];
+            double NUF = result["NUF"];
+            double NLF = result["NLF"];
+
+            cerr << "UF(dev)=" << UF << "%" << endl;
+            cerr << "LF(dev)=" << LF << "%" << endl;
+            cerr << "NUF(dev)=" << NUF << "%" << endl;
+            cerr << "NLF(dev)=" << NLF << "%" << endl;
+            //cerr << "UAS(dev) = " << uas << "%" << endl;
+            //cerr << "LAS(dev) = " << las << "%" << endl;
+            //cerr << "UEM(dev) = " << uem << "%" << endl;
             cerr << "ROOT(dev) = " << root << "%" << endl;
 
-            if (config.save_intermediate && uas > best_uas)
+            if (config.save_intermediate && LF > best_lf)
             {
-                best_uas = uas;
+                best_lf = LF;
                 // save_model(string(model_file) + "." + to_str(iter)); // can rename
-
+                cerr << "saving model to:" << model_file << endl;
                 save_model(string(model_file)); // can rename
             }
         }
@@ -214,27 +226,42 @@ void DependencyParser::train(
 
     if (dev_file[0] != 0)
     {
-        vector<DependencyTree> predicted;
-        predict(dev_sents, predicted);
+        vector<DependencyGraph> predicted;
+        predict_graph(dev_sents, predicted);
         // get_uas_scoredouble uas = system->get_uas_score(dev_sents, predicted, dev_trees);
 
         map<string, double> result;
-        system->evaluate(dev_sents, predicted, dev_trees, result);
-        double uas = result["UASwoPunc"];
-        double las = result["LASwoPunc"];
-        double uem = result["UEMwoPunc"];
+        system->evaluate(dev_sents, predicted, dev_graphs, result);
+        //double uas = result["UASwoPunc"];
+        //double las = result["LASwoPunc"];
+        //double uem = result["UEMwoPunc"];
         double root = result["ROOT"];
 
+        double LF = result["LF"];
+        double UF = result["UF"];
+        double NUF = result["NUF"];
+        double NLF = result["NLF"];
+
+        cerr << "Final model: " << endl;
+        cerr << "UF(dev)=" << UF << "%" << endl;
+        cerr << "LF(dev)=" << LF << "%" << endl;
+        cerr << "NUF(dev)=" << NUF << "%" << endl;
+        cerr << "NLF(dev)=" << NLF << "%" << endl;
+        cerr << "Best model: " << endl
+             << "\tLF(Best) = " << best_lf << endl;
+
+        /*
         cerr << "Final model: " << endl
              << "\tUAS = " << uas << endl
              << "\tLAS = " << las << endl
              << "\tUEM = " << uem << endl
              << "\tROOT = " << root << endl;
         cerr << "Best model: " << endl
-             << "\tUAS(Best) = " << best_uas << endl;
+             << "\tUAS(Best) = " << best_uas << endl;*/
 
-        if (uas > best_uas)
+        if (LF > best_lf)
         {
+            cerr << "saving model to:" << model_file << endl;
             save_model(model_file);
         }
     }
@@ -261,11 +288,11 @@ void DependencyParser::finetune(
     cerr << "Target embedding file: " << emb_file   << endl;
 
     // load training data from target language
-    vector<DependencyTree> train_trees;
+    vector<DependencyGraph> train_graphs;
     vector<DependencySent> train_sents;
 
     cerr << "Loading training file (conll) for finetuning" << endl;
-    Util::load_conll_file(train_file, train_sents, train_trees, config.labeled);
+    Util::load_conll_file_graph(train_file, train_sents, train_graphs, config.labeled);
     if (sub_sampling != -1 && (unsigned)sub_sampling < train_sents.size())
     {
         // vector<DependencySent>::const_iterator s_beg = train_sents.begin();
@@ -276,14 +303,14 @@ void DependencyParser::finetune(
 
         // vector<DependencyTree>::const_iterator t_beg = train_trees.begin();
         // vector<DependencyTree>::const_iterator t_end = train_trees.begin() + sub_sampling;
-        auto t_beg = train_trees.begin();
-        auto t_end = train_trees.begin() + sub_sampling;
-        train_trees = vector<DependencyTree>(t_beg, t_end);
+        auto t_beg = train_graphs.begin();
+        auto t_end = train_graphs.begin() + sub_sampling;
+        train_graphs = vector<DependencyGraph>(t_beg, t_end);
     }
 
     cerr << "Sub-sampling " << sub_sampling << " sentences/trees for finetuning." << endl;
 
-    Util::print_tree_stats(train_trees);
+    //Util::print_tree_stats(train_trees);
     // Attention: no dev trees are used here
 
     // gen_dictionaries(train_sents, train_trees);
@@ -297,7 +324,7 @@ void DependencyParser::finetune(
     if (config.delexicalized)   load_model(premodel_file);
     else                        load_model_cl(premodel_file, emb_file);
 
-    Dataset dataset = gen_train_samples(train_sents, train_trees);
+    Dataset dataset = gen_train_samples_graph(train_sents, train_graphs);
     // classifier = new NNClassifier(config, dataset, Eb, Ed, Ev, Ec, W1, b1, W2, pre_computed_ids);
     // if (classifier) delete classifier;
     classifier->set_dataset(dataset, pre_computed_ids);
@@ -342,31 +369,29 @@ void DependencyParser::finetune(
 
 void DependencyParser::extract_transition_sequence(const char * train_file)
 {
-    vector<DependencyTree> trees;
+    vector<DependencyGraph> graphs;
     vector<DependencySent> sents;
-    Util::load_conll_file(train_file, sents, trees, config.labeled);
+    Util::load_conll_file_graph(train_file, sents, graphs, config.labeled);
 
-    gen_dictionaries(sents, trees);
+    gen_dictionaries_graph(sents, graphs);
 
     vector<string> ldict = known_labels;
     ldict.pop_back();
     ParsingSystem * monitor;
-    if (config.oracle == "arcstandard")
-        monitor = new ArcStandard(ldict, config.language, config.labeled);
-    else if (config.oracle == "nivre09")
-        monitor = new NonProjNivre(ldict, config.language, config.labeled);
+    if (config.oracle == "arceager")
+        system =  new ArcEager(ldict, config.language, config.labeled);
 
     for (size_t i = 0; i < sents.size(); ++i)
     {
         cout << "[" << i << "]";
         Configuration c(sents[i]);
-        if (!monitor->can_process(trees[i]))
+        if (!monitor->can_process(graphs[i]))
             cout << "FALSE";
         else
         {
             while (!monitor->is_terminal(c))
             {
-                string oracle = monitor->get_oracle(c, trees[i]);
+                string oracle = monitor->get_oracle(c, graphs[i]);
                 monitor->apply(c, oracle);
                 cout << " " << oracle;
             }
@@ -380,9 +405,9 @@ void DependencyParser::extract_transition_sequence(string & train_file)
     extract_transition_sequence(train_file.c_str());
 }
 
-void DependencyParser::gen_dictionaries(
+void DependencyParser::gen_dictionaries_graph(
         vector<DependencySent> & sents,
-        vector<DependencyTree> & trees)
+        vector<DependencyGraph> & graphs)
 {
     vector<string> all_words;
     vector<string> all_poss;
@@ -442,17 +467,21 @@ void DependencyParser::gen_dictionaries(
     string root_label = "";
     if (config.labeled)
     {
-        for (size_t i = 0; i < trees.size(); ++i)
+        for (size_t i = 0; i < graphs.size(); ++i)
         {
-            for (int j = 1; j <= trees[i].n; ++j)
+            for (int j = 1; j <= graphs[i].n; ++j)
             {
-                if (trees[i].get_head(j) == 0)
-                    root_label = trees[i].get_label(j);
-                else
-                {
-                    string label = trees[i].get_label(j);
-                    if (label != root_label)
-                        all_labels.push_back(trees[i].get_label(j));
+                vector<int> h = graphs[i].get_head(j);
+                vector<std::string> l = graphs[i].get_label(j);
+                for (int k = 0; k < (int)h.size(); k++){
+                    if (h[k] == 0){
+                        root_label = l[k];
+                    } 
+                    else{
+                        string label = l[k];
+                        if (label != root_label)
+                            all_labels.push_back(label);
+                    }
                 }
             }
         }
@@ -510,26 +539,6 @@ void DependencyParser::gen_dictionaries(
         known_labels.push_back(Config::UNKNOWN);
     }
 
-    /**
-     * find all oracle decisions, and extract dynamic features
-     *  - can add other features here, aside from /distance/
-     */
-    cerr << "collect dynamic features (e.g. distances)" << endl;
-    if (config.use_distance || config.use_valency)
-    {
-        collect_dynamic_features(sents, trees);
-        /*
-        known_distances.push_back(1);
-        known_distances.push_back(2);
-        known_distances.push_back(3);
-        known_distances.push_back(4);
-        known_distances.push_back(5);
-        known_distances.push_back(6);
-        */
-        known_distances.push_back(Config::UNKNOWN_INT);
-        // known_valencies.push_back(Config::UNKNOWN);
-    }
-
     generate_ids();
 
     cerr << config.SEPERATOR << endl;
@@ -558,7 +567,7 @@ void DependencyParser::gen_dictionaries(
 
 void DependencyParser::collect_dynamic_features(
         vector<DependencySent> & sents,
-        vector<DependencyTree> & trees)
+        vector<DependencyGraph> & graphs)
 {
     vector<int> all_distances;
     vector<string> all_valencies;
@@ -566,10 +575,8 @@ void DependencyParser::collect_dynamic_features(
     vector<string> ldict = known_labels;
     ldict.pop_back();
     ParsingSystem * monitor;
-    if (config.oracle == "arcstandard")
-        monitor = new ArcStandard(ldict, config.language, config.labeled);
-    else if (config.oracle == "nivre09")
-        monitor = new NonProjNivre(ldict, config.language, config.labeled);
+    if (config.oracle == "arceager")
+        system =  new ArcEager(ldict, config.language, config.labeled);
 
     for (size_t i = 0; i < sents.size(); ++i)
     {
@@ -580,12 +587,12 @@ void DependencyParser::collect_dynamic_features(
         // if (trees[i].is_projective())
         // if (trees[i].is_single_root()) // non-projective
         // if (trees[i].is_single_root() || trees[i].is_projective()) // all trees
-        if (monitor->can_process(trees[i]))
+        if (monitor->can_process(graphs[i]))
         {
             Configuration c(sents[i]);
             while (!monitor->is_terminal(c))
             {
-                string oracle = monitor->get_oracle(c, trees[i]);
+                string oracle = monitor->get_oracle(c, graphs[i]);
                 // cerr << "Oracle: " << oracle << endl;
                 // cerr << "Configuration: " << c.info() << endl;
                 monitor->apply(c, oracle);
@@ -611,7 +618,7 @@ void DependencyParser::collect_dynamic_features(
 
 void DependencyParser::setup_classifier_for_training(
         vector<DependencySent> & sents,
-        vector<DependencyTree> & trees,
+        vector<DependencyGraph> & graphs,
         const char * embed_file,
         const char * premodel_file)
 {
@@ -649,10 +656,8 @@ void DependencyParser::setup_classifier_for_training(
     Mat<double> W1(0.0, config.hidden_size, W1_ncol);
     Vec<double> b1(0.0, config.hidden_size);
     int n_actions = 0;
-    if (config.oracle == "arcstandard")
-        n_actions = (config.labeled) ? (known_labels.size() * 2 - 1) : 3; // projective
-    else if (config.oracle == "nivre09")
-        n_actions = (config.labeled) ? (known_labels.size() * 2) : 4; // projective-with-swap
+    if (config.oracle == "arceager")
+        n_actions = (config.labeled) ? (known_labels.size() * 4 - 4) : 7;// attach system
     Mat<double> W2(0.0, n_actions, config.hidden_size);
 
     // Randomly initialize weight matrices / vectors
@@ -852,7 +857,7 @@ void DependencyParser::setup_classifier_for_training(
      * generate training dataset and
      * determine the pre_computed ids (important)
      */
-    Dataset dataset = gen_train_samples(sents, trees);
+    Dataset dataset = gen_train_samples_graph(sents, graphs);
 
     // shuffle dataset
     // cerr << "shuffle training set" << endl;
@@ -927,9 +932,9 @@ void DependencyParser::generate_ids()
     */
 }
 
-Dataset DependencyParser::gen_train_samples(
+Dataset DependencyParser::gen_train_samples_graph(
         vector<DependencySent> & sents,
-        vector<DependencyTree> & trees)
+        vector<DependencyGraph> & graphs)
 {
     int num_trans = system->transitions.size();
     Dataset ds_train(config.num_tokens, num_trans);
@@ -938,6 +943,7 @@ Dataset DependencyParser::gen_train_samples(
     cerr << "Generating training examples..." << endl;
     unordered_map<int, int> tokpos_count;
 
+    int error_cnt = 0;
     for (size_t i = 0; i < sents.size(); ++i)
     {
         // runtime info
@@ -958,15 +964,26 @@ Dataset DependencyParser::gen_train_samples(
         // if (trees[i].is_projective())
         // if (trees[i].is_single_root()) // non-projective
         // if (trees[i].is_single_root() || trees[i].is_projective()) // all trees
-        if (system->can_process(trees[i]))
+         
+       /* cerr << endl<< "id:" << i << "first:" << sents[i].words[0] <<" ";
+        if (sents[i].n > 2)
+            cerr<<sents[i].words[1]<<" " << sents[i].words[2]<<endl;*/
+        if (system->can_process(graphs[i]))
         {
             // cerr << i << " is projective" << endl;
             Configuration c(sents[i]);
-            // trees[i].cal_projective_order_and_mpc(); // better to be put somewhere else
             while (!system->is_terminal(c))
             {
-                string oracle = system->get_oracle(c, trees[i]);
-
+                string oracle = system->get_oracle(c, graphs[i]);
+                //cerr << oracle <<" ";
+                if (oracle == "-E-"){
+                    error_cnt++;
+                    cerr << endl<< "id:" << i  <<"len:" << sents[i].n << "first: " << sents[i].words[0] <<" ";
+                    if (sents[i].n > 2)
+                        cerr<<sents[i].words[1]<<" " << sents[i].words[2]<<endl;
+                    cerr << c.info() << endl;
+                    break;
+                }
                 vector<int> features = get_features(c);
                 // int label = system->get_transition_id(oracle);
                 vector<int> label(num_trans, -1);
@@ -987,11 +1004,11 @@ Dataset DependencyParser::gen_train_samples(
                     else
                         tokpos_count[feature_id] += 1;
                 }
-
                 system->apply(c, oracle);
             }
         }
     }
+    cerr <<endl<< "#Error sentence number:" << error_cnt << endl;
 
     cerr << "#Train examples: " << ds_train.n << endl;
 
@@ -1018,7 +1035,7 @@ Dataset DependencyParser::gen_train_samples(
 
 void DependencyParser::scan_test_samples(
         vector<DependencySent> & sents,
-        vector<DependencyTree> & trees,
+        vector<DependencyGraph> & graphs,
         vector<int> & precompute_ids)
 {
     unordered_map<int, int> tokpos_count;
@@ -1029,12 +1046,22 @@ void DependencyParser::scan_test_samples(
         // if (trees[i].is_projective())
         // if (trees[i].is_single_root()) // non-projective
         // if (trees[i].is_single_root() || trees[i].is_projective()) // all trees
-        if (system->can_process(trees[i]))
+        int error_cnt = 0;
+        if (system->can_process(graphs[i]))
         {
             Configuration c(sents[i]);
             while (!system->is_terminal(c))
             {
-                string oracle = system->get_oracle(c, trees[i]);
+                string oracle = system->get_oracle(c, graphs[i]);
+                //cerr << "oracle:" << oracle << " ";
+                if (oracle == "-E-"){
+                    error_cnt++;
+                    cerr << endl<< "id:" << i  <<"len:" << sents[i].n << "first: " << sents[i].words[0] <<" ";
+                    if (sents[i].n > 2)
+                        cerr<<sents[i].words[1]<<" " << sents[i].words[2]<<endl;
+                    cerr << c.info() << endl;
+                    break;
+                }
                 vector<int> features = get_features(c);
 
                 for (size_t j = 0; j < features.size(); ++j)
@@ -1250,82 +1277,82 @@ vector<int> DependencyParser::get_features(Configuration& c)
     vector<int> f_word;
     vector<int> f_pos;
     vector<int> f_label;
-    vector<int> f_cluster;
 
-    for (int i = 2; i >= 0; --i)
+    for (int i = 1; i >= 0; --i) // S0,S1:w,p
     {
         int index = c.get_stack(i);
         f_word.push_back(get_word_id(c.get_word(index)));
         f_pos.push_back(get_pos_id(c.get_pos(index)));
-        f_cluster.push_back(get_cluster_id(c.get_cluster(index)));
-
-        // use prefix feature of brown cluster
-        // /*
-        if (i == 0)
-        {
-            f_cluster.push_back(get_cluster_id(c.get_cluster_prefix(index, 4)));
-            f_cluster.push_back(get_cluster_id(c.get_cluster_prefix(index, 6)));
-        }
-        // */
     }
-
-    for (int i = 0; i <= 2; ++i)
+    for (int i = 0; i <= 1; ++i) // N0,N1:w,p
     {
         int index = c.get_buffer(i);
         f_word.push_back(get_word_id(c.get_word(index)));
         f_pos.push_back(get_pos_id(c.get_pos(index)));
-        f_cluster.push_back(get_cluster_id(c.get_cluster(index)));
-
-        // use prefix feature of brown cluster
-        // /*
-        if (i == 0)
-        {
-            f_cluster.push_back(get_cluster_id(c.get_cluster_prefix(index, 4)));
-            f_cluster.push_back(get_cluster_id(c.get_cluster_prefix(index, 6)));
-        }
-        // */
     }
 
-    for (int i = 0; i <= 1; ++i)
-    {
-        int k = c.get_stack(i);
+    int k = c.get_stack(0);
+    int index = c.get_left_child(k); // S0l:wpl
+    f_word.push_back(get_word_id(c.get_word(index)));
+    f_pos.push_back(get_pos_id(c.get_pos(index)));
+    f_label.push_back(get_label_id(c.get_arc_label(index, k)));
 
-        int index = c.get_left_child(k);
-        f_word.push_back(get_word_id(c.get_word(index)));
-        f_pos.push_back(get_pos_id(c.get_pos(index)));
-        f_label.push_back(get_label_id(c.get_label(index)));
-        f_cluster.push_back(get_cluster_id(c.get_cluster(index)));
+    index = c.get_right_child(k); //S0r:wpl
+    f_word.push_back(get_word_id(c.get_word(index)));
+    f_pos.push_back(get_pos_id(c.get_pos(index)));
+    f_label.push_back(get_label_id(c.get_arc_label(index, k)));
 
-        index = c.get_right_child(k);
-        f_word.push_back(get_word_id(c.get_word(index)));
-        f_pos.push_back(get_pos_id(c.get_pos(index)));
-        f_label.push_back(get_label_id(c.get_label(index)));
-        f_cluster.push_back(get_cluster_id(c.get_cluster(index)));
+    index = c.get_left_child(c.get_left_child(k)); //S0ll:wpl
+    f_word.push_back(get_word_id(c.get_word(index)));
+    f_pos.push_back(get_pos_id(c.get_pos(index)));
+    f_label.push_back(get_label_id(c.get_arc_label(index, c.get_left_child(k))));
 
-        index = c.get_left_child(k, 2);
-        f_word.push_back(get_word_id(c.get_word(index)));
-        f_pos.push_back(get_pos_id(c.get_pos(index)));
-        f_label.push_back(get_label_id(c.get_label(index)));
-        f_cluster.push_back(get_cluster_id(c.get_cluster(index)));
+    index = c.get_right_child(c.get_right_child(k)); //S0rr:wpl
+    f_word.push_back(get_word_id(c.get_word(index)));
+    f_pos.push_back(get_pos_id(c.get_pos(index)));
+    f_label.push_back(get_label_id(c.get_arc_label(index, c.get_right_child(k))));
 
-        index = c.get_right_child(k, 2);
-        f_word.push_back(get_word_id(c.get_word(index)));
-        f_pos.push_back(get_pos_id(c.get_pos(index)));
-        f_label.push_back(get_label_id(c.get_label(index)));
-        f_cluster.push_back(get_cluster_id(c.get_cluster(index)));
+    index = c.get_left_head(k); //S0lh:wpl
+    f_word.push_back(get_word_id(c.get_word(index)));
+    f_pos.push_back(get_pos_id(c.get_pos(index)));
+    f_label.push_back(get_label_id(c.get_arc_label(index, k)));
 
-        index = c.get_left_child(c.get_left_child(k));
-        f_word.push_back(get_word_id(c.get_word(index)));
-        f_pos.push_back(get_pos_id(c.get_pos(index)));
-        f_label.push_back(get_label_id(c.get_label(index)));
-        f_cluster.push_back(get_cluster_id(c.get_cluster(index)));
+    index = c.get_right_head(k); //S0rh:wpl
+    f_word.push_back(get_word_id(c.get_word(index)));
+    f_pos.push_back(get_pos_id(c.get_pos(index)));
+    f_label.push_back(get_label_id(c.get_arc_label(index, k)));
 
-        index = c.get_right_child(c.get_right_child(k));
-        f_word.push_back(get_word_id(c.get_word(index)));
-        f_pos.push_back(get_pos_id(c.get_pos(index)));
-        f_label.push_back(get_label_id(c.get_label(index)));
-        f_cluster.push_back(get_cluster_id(c.get_cluster(index)));
-    }
+    index = c.get_left_head(c.get_left_head(k)); //S0llh:wpl
+    f_word.push_back(get_word_id(c.get_word(index)));
+    f_pos.push_back(get_pos_id(c.get_pos(index)));
+    f_label.push_back(get_label_id(c.get_arc_label(index, c.get_left_child(k))));
+
+    index = c.get_right_head(c.get_right_head(k)); //S0rrh:wpl
+    f_word.push_back(get_word_id(c.get_word(index)));
+    f_pos.push_back(get_pos_id(c.get_pos(index)));
+    f_label.push_back(get_label_id(c.get_arc_label(index, c.get_right_child(k))));
+
+    k = c.get_buffer(0);
+    index = c.get_left_child(k); //N0lc:wpl
+    f_word.push_back(get_word_id(c.get_word(index)));
+    f_pos.push_back(get_pos_id(c.get_pos(index)));
+    f_label.push_back(get_label_id(c.get_arc_label(index, k)));
+
+    index = c.get_left_head(k); //N0lh:wpl
+    f_word.push_back(get_word_id(c.get_word(index)));
+    f_pos.push_back(get_pos_id(c.get_pos(index)));
+    f_label.push_back(get_label_id(c.get_arc_label(index, k)));
+
+    index = c.get_left_child(c.get_left_child(k)); //N0llc:wpl
+    f_word.push_back(get_word_id(c.get_word(index)));
+    f_pos.push_back(get_pos_id(c.get_pos(index)));
+    f_label.push_back(get_label_id(c.get_arc_label(index, c.get_left_child(k))));
+
+    index = c.get_left_head(c.get_left_head(k)); //N0llh:wpl
+    f_word.push_back(get_word_id(c.get_word(index)));
+    f_pos.push_back(get_pos_id(c.get_pos(index)));
+    f_label.push_back(get_label_id(c.get_arc_label(index, c.get_right_child(k))));
+
 
     vector<int> features;
     if (!config.delexicalized)
@@ -1346,6 +1373,7 @@ vector<int> DependencyParser::get_features(Configuration& c)
     if (config.use_distance)
         features.push_back(get_distance_id(c.get_distance()));
 
+    /*
     if (config.use_valency)
     {
         int index = c.get_stack(1);
@@ -1361,6 +1389,7 @@ vector<int> DependencyParser::get_features(Configuration& c)
                         f_cluster.begin(),
                         f_cluster.end());
     }
+    */
 
     assert ((int)features.size() == config.num_tokens);
 
@@ -1433,13 +1462,12 @@ int DependencyParser::get_cluster_id(const string & c)
                 : cluster_ids[c];
 }
 
-void DependencyParser::predict(
+void DependencyParser::predict_graph(
         DependencySent& sent,
-        DependencyTree& tree)
+        DependencyGraph& graph)
 {
     int num_trans = system->transitions.size();
     Configuration c(sent);
-
     while (!system->is_terminal(c))
     {
         vector<double> scores;
@@ -1469,28 +1497,54 @@ void DependencyParser::predict(
                 */
             }
         }
-        // cerr << opt_trans << "->";
+        if (opt_trans == "NS"){
+            double snd_score = -DBL_MAX;
+            string snd_trans = "";
+            for (int i = 0; i < num_trans; ++i)
+                if (scores[i] > snd_score)
+                {
+                    if (system->can_apply(c, system->transitions[i])){
+                       // cerr <<"can apply:"<< system->transitions[i]<<endl;
+                        if ((startswith(system->transitions[i],"L") || startswith(system->transitions[i],"R"))){
+                        snd_trans = system->transitions[i];
+                        snd_score = scores[i];}
+                    }
+                }
+            c.save_2nd_head(snd_trans, snd_score);
+           // cerr << "second trans:"<< snd_trans << " ";
+        }
+        //cerr << opt_trans << "->" << endl;
         //cerr << "true: " << opt_trans << endl;
         system->apply(c, opt_trans);
+
+        //cerr <<endl<< c.info() << endl;
+        
         //cerr << c.info() << endl;
     }
-
-    tree = c.tree;
+    //c.graph.print();
+    if (c.get_stack_size() > 1){
+        process_headless(c);
+    }
+    if (!c.is_graph()){
+        cerr << "error:not a graph!"<<endl;
+        c.graph.print();
+    }
+    graph = c.graph;
     // return c.tree;
 }
 
-void DependencyParser::predict(
+void DependencyParser::predict_graph(
         vector<DependencySent>& sents,
-        vector<DependencyTree>& trees)
+        vector<DependencyGraph>& graphs)
 {
     // vector<DependencyTree> result;
-    trees.clear();
-    trees.resize(sents.size());
+    graphs.clear();
+    graphs.resize(sents.size());
     // #pragma omp parallel for
     for (size_t i = 0; i < sents.size(); ++i)
     {
         cerr << "\r" << i << "    ";
-        predict(sents[i], trees[i]);
+        predict_graph(sents[i], graphs[i]);
         // result.push_back(predict(sents[i]));
     }
     cerr << endl;
@@ -1667,10 +1721,8 @@ void DependencyParser::load_model(const char * filename, bool re_precompute)
     }
 
     int n_actions = 0;
-    if (config.oracle == "arcstandard")
-        n_actions = (config.labeled) ? (n_label * 2 - 1) : 3; // projective
-    else if (config.oracle == "nivre09")
-        n_actions = (config.labeled) ? (n_label * 2) : 4; // non-projective
+    if (config.oracle == "arceager")
+        n_actions = (config.labeled) ? (known_labels.size() * 4 - 4) : 7;// attach system
 
     Mat<double> W2(n_actions, h_size);
     for (int j = 0; j < W2.ncols(); ++j)
@@ -1699,10 +1751,8 @@ void DependencyParser::load_model(const char * filename, bool re_precompute)
 
     vector<string> ldict = known_labels;
     if (config.labeled) ldict.pop_back(); // remove the NIL label
-    if (config.oracle == "arcstandard")
-        system = new ArcStandard(ldict, config.language, config.labeled);
-    else if (config.oracle == "nivre09")
-        system = new NonProjNivre(ldict, config.language, config.labeled);
+    if (config.oracle == "arceager")
+        system =  new ArcEager(ldict, config.language, config.labeled);
 
     if (!re_precompute && config.num_pre_computed > 0)
         classifier->pre_compute();
@@ -1927,10 +1977,8 @@ void DependencyParser::load_model_cl(
     }
 
     int n_actions = 0;
-    if (config.oracle == "arcstandard")
-        n_actions = (config.labeled) ? (n_label * 2 - 1) : 3; // projective
-    else if (config.oracle == "nivre09")
-        n_actions = (config.labeled) ? (n_label * 2) : 4; // non-projective
+    if (config.oracle == "arceager")
+        n_actions = (config.labeled) ? (known_labels.size() * 4 - 4) : 7;// attach system
 
     Mat<double> W2(n_actions, h_size);
     for (int j = 0; j < W2.ncols(); ++j)
@@ -1956,10 +2004,8 @@ void DependencyParser::load_model_cl(
     vector<string> ldict = known_labels;
     if (config.labeled)
         ldict.pop_back(); // remove the NIL label
-    if (config.oracle == "arcstandard")
-        system = new ArcStandard(ldict, config.language, config.labeled);
-    else if (config.oracle == "nivre09")
-        system = new NonProjNivre(ldict, config.language, config.labeled);
+    if (config.oracle == "arceager")
+        system =  new ArcEager(ldict, config.language, config.labeled);
 
     /*
     if (config.num_pre_computed > 0)
@@ -1986,15 +2032,15 @@ void DependencyParser::test(
     double start = get_time();
 
     vector<DependencySent> test_sents;
-    vector<DependencyTree> test_trees;
-    Util::load_conll_file(test_file, test_sents, test_trees);
-    Util::print_tree_stats(test_trees);
+    vector<DependencyGraph> test_graphs;
+    Util::load_conll_file_graph(test_file, test_sents, test_graphs);
+    //Util::print_tree_stats(test_trees);
 
     if (re_precompute)
     {
         cerr << "Pre-computing based on test file (Oracle)" << endl;
         vector<int> test_precompute_ids;
-        scan_test_samples(test_sents, test_trees, test_precompute_ids);
+        scan_test_samples(test_sents, test_graphs, test_precompute_ids);
         cerr << "test_precompute_ids.size = " << test_precompute_ids.size() << endl;
         classifier->pre_compute(test_precompute_ids, true);
     }
@@ -2004,18 +2050,25 @@ void DependencyParser::test(
     for (size_t i = 0; i < test_sents.size(); ++i)
         n_words += test_sents[i].n;
 
-    vector<DependencyTree> predicted;
-    predict(test_sents, predicted);
+    vector<DependencyGraph> predicted;
+    predict_graph(test_sents, predicted);
 
     map<string, double> result;
-    system->evaluate(test_sents, predicted, test_trees, result);
-    double las_wo_punc = result["LASwoPunc"];
-    double uas_wo_punc = result["UASwoPunc"];
-    double uas_sub_obj = result["SOUAS"];
+    system->evaluate(test_sents, predicted, test_graphs, result);
+   // double las_wo_punc = result["LASwoPunc"];
+    //double uas_wo_punc = result["UASwoPunc"];
+   // double uas_sub_obj = result["SOUAS"];
 
-    fprintf(stderr, "UAS = %.4f%%\n", uas_wo_punc);
-    fprintf(stderr, "LAS = %.4f%%\n", las_wo_punc);
-    fprintf(stderr, "SUB/OBJ-UAS = %.4f%%\n", uas_sub_obj);
+    double LF = result["LF"];
+    double UF = result["UF"];
+    double NUF = result["NUF"];
+    double NLF = result["NLF"];
+
+    fprintf(stderr, "UF = %.4f%%\n", UF);
+    fprintf(stderr, "LF = %.4f%%\n", LF);
+    fprintf(stderr, "NUF = %.4f%%\n", NUF);
+    fprintf(stderr, "NLF = %.4f%%\n", NLF);
+    //fprintf(stderr, "SUB/OBJ-UAS = %.4f%%\n", uas_sub_obj);
 
     double end = get_time();
 
@@ -2024,9 +2077,9 @@ void DependencyParser::test(
 
     fprintf(stderr, "%.1f words per second.\n", wordspersec);
     fprintf(stderr, "%.1f sents per second.\n", sentspersec);
-
+    
     if (output_file != NULL)
-        Util::write_conll_file(output_file, test_sents, predicted);
+        Util::write_conll_file_graph(output_file, test_sents, predicted);
 }
 
 void DependencyParser::test(
@@ -2037,3 +2090,68 @@ void DependencyParser::test(
     test(test_file.c_str(), output_file.c_str(), re_precompute);
 }
 
+void DependencyParser::process_headless(Configuration& c)
+{   
+    //cerr << "headless" <<endl;
+    string root_label = known_labels[known_labels.size() - 2]; ///???is this root label?
+    for (int i = 1; i <= c.graph.n; i++){
+        //cerr << "i:" << i <<endl;
+        if (!c.has_head(i) && !c.find_2nd_head(i)){
+            //cerr << "search"<< endl;
+            vector<Snd_head> cand_2nd_heads(c.graph.n);
+            process_headless_search_all(i, cand_2nd_heads, c, 1); // node after i
+            process_headless_search_all(i, cand_2nd_heads, c, -1); // node before i
+            Snd_head opt_head;
+            opt_head.score = -DBL_MAX;
+            opt_head.head = -1;
+            for (int j = 0; j < c.graph.n; j++){
+                if (cand_2nd_heads[j].score > opt_head.score
+                    && !c.has_path_to(i, cand_2nd_heads[j].head)) // no cycle
+                    opt_head = cand_2nd_heads[j];
+            }
+            if (opt_head.head != -1)
+                c.add_arc(opt_head.head, i, opt_head.label);
+            else
+                c.add_arc(0, i, root_label);
+        }
+    }
+}
+
+void DependencyParser::process_headless_search_all(int k, vector<Snd_head>& cand_2nd_heads, Configuration& c, int dir)
+{
+    int graph_size = c.graph.n;
+    for (int i = k + dir; i > 0 && i <= graph_size; i += dir){
+        if (dir > 0)
+            c.reset(k, i);
+        else
+            c.reset(i, k);
+        double opt_score;
+        string opt_label;
+        get_best_label(c, opt_label, opt_score, dir);
+        Snd_head snd_head;
+        snd_head.head = i; snd_head.label = opt_label; snd_head.score = opt_score;
+        cand_2nd_heads[i - 1] = snd_head; // head i is stored in [i-1]
+    }
+}
+
+void DependencyParser::get_best_label(Configuration c, string & opt_label, double & opt_score, int arc_dir)
+{
+    string prefix = arc_dir > 0 ? "L" : "R";
+    int num_trans = system->transitions.size();
+    vector<double> scores;
+    vector<int> features = get_features(c);
+    classifier->compute_scores(features, scores);
+
+    opt_score = -DBL_MAX;
+    string opt_trans = "";
+
+    for (int i = 0; i < num_trans; ++i){
+        if (startswith(system->transitions[i], prefix) //ensure the arc is in right direction
+            &&scores[i] > opt_score){
+            opt_score = scores[i];
+            opt_trans = system->transitions[i];
+        }
+    }
+
+    opt_label = opt_trans.substr(3, opt_trans.length() - 4);
+}
