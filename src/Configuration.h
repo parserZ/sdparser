@@ -71,6 +71,9 @@ class Configuration
         std::string get_rvalency(int k);
         std::string get_rvalency_fc(int k); // for debug
 
+        std::string get_rhvalency(int k);
+        std::string get_lhvalency(int k);
+
         std::string get_word(int k);
 
         std::string get_pos(int k);
@@ -149,6 +152,8 @@ class Configuration
 
         std::vector<int> lvalency;
         std::vector<int> rvalency;
+        std::vector<int> lhvalency;
+        std::vector<int> rhvalency;
 };
 
 #endif

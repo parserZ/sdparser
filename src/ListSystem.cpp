@@ -1,4 +1,4 @@
-#include "ArcEager.h"
+#include "ListSystem.h"
 #include "strutils.h"
 #include "Config.h"
 
@@ -6,7 +6,7 @@
 #include <map>
 using namespace std;
 
-ArcEager::ArcEager(vector<string>& ldict, string& language, bool is_labeled)
+ListSystem::ListSystem(vector<string>& ldict, string& language, bool is_labeled)
 {
     lang = language;
 
@@ -25,23 +25,20 @@ ArcEager::ArcEager(vector<string>& ldict, string& language, bool is_labeled)
          << "Labeled:      " << labeled            << endl;
 }
 
-ArcEager::~ArcEager()
+ListSystem::~ListSystem()
 {
 }
 
-void ArcEager::make_transitions()
+void ListSystem::make_transitions()
 {
     for (size_t i = 0; i < labels.size() - 1; ++i)
-        transitions.push_back("LR(" + labels[i] + ")"); // left reduce
+        transitions.push_back("LP(" + labels[i] + ")"); // left pop
     for (size_t i = 0; i < labels.size(); ++i)
-        transitions.push_back("RS(" + labels[i] + ")"); // right shift
+        transitions.push_back("RA(" + labels[i] + ")"); // right arc
     for (size_t i = 0; i < labels.size() - 1; ++i)
-        transitions.push_back("LP(" + labels[i] + ")"); // left pass
-    for (size_t i = 0; i < labels.size() - 1; ++i)
-        transitions.push_back("RP(" + labels[i] + ")"); // right pass
+        transitions.push_back("LA(" + labels[i] + ")"); // left arc
 
     transitions.push_back("NS"); // no shift
-    transitions.push_back("NR"); // no reduce
     transitions.push_back("NP"); // no pass
 
     cerr << "Transition types:" << endl;
@@ -50,7 +47,7 @@ void ArcEager::make_transitions()
     cerr << endl;
 }   
 
-bool ArcEager::can_apply(Configuration& c, const string& t)
+bool ListSystem::can_apply(Configuration& c, const string& t)
 {
     int n_stack = c.get_stack_size();
     int n_buffer = c.get_buffer_size();
@@ -62,9 +59,9 @@ bool ArcEager::can_apply(Configuration& c, const string& t)
     int b_head = head_b.size();
     root_label = labels[labels.size() - 1];
 
-    if (startswith(t, "LR") || startswith(t, "LP"))
+    if (startswith(t, "LA") || startswith(t, "LP"))
         return (w > 0 && b > 0 && !c.has_path_to(w, b) && !c.is_root(w));
-    else if (startswith(t, "RS") || startswith(t, "RP")){
+    else if (startswith(t, "RA")){
         string l = t.substr(3, t.length() - 4);
         if (w == 0)
             return (l == root_label && !c.graph.is_single_root() && b_head == 0);
@@ -73,43 +70,33 @@ bool ArcEager::can_apply(Configuration& c, const string& t)
     }
     else if (t == "NS")
         return (n_buffer > 0);
-    else if (t == "NR") // w has head
-        return (n_stack > 1 && w_head > 0);
     else if (t == "NP") // can not pass root(0)
         return (n_stack > 1 && n_buffer > 0);
 }
 
-void ArcEager::apply(Configuration& c, const string& t)
+void ListSystem::apply(Configuration& c, const string& t)
 {
     int b = c.get_buffer(0);
     int w = c.get_stack(0);
 
-    // Left Reduce
-    if (startswith(t, "LR"))
+    // Left Pop
+    if (startswith(t, "LP"))
     {
         c.add_arc(b, w, t.substr(3, t.length() - 4));
         c.reduce();
         c.lvalency[b] += 1;
         c.rhvalency[w] += 1;
     }
-    // Right Reduce
-    else if (startswith(t, "RS"))
-    {
-        c.add_arc(w, b, t.substr(3, t.length() - 4));
-        c.shift();
-        c.rvalency[w] += 1;
-        c.lhvalency[b] += 1;
-    }
-    // Left Attach
-    else if (startswith(t, "LP"))
+    // Left Arc
+    else if (startswith(t, "LA"))
     {
         c.add_arc(b, w, t.substr(3, t.length() - 4));
         c.pass();
         c.lvalency[b] += 1;
         c.rhvalency[w] += 1;
     }
-    // Right Attach
-    else if (startswith(t, "RP"))
+    // Right Arc
+    else if (startswith(t, "RA"))
     {
         c.add_arc(w, b, t.substr(3, t.length() - 4));
         c.pass();
@@ -121,11 +108,6 @@ void ArcEager::apply(Configuration& c, const string& t)
     {
         c.shift();
     }
-    // No Reduce
-    else if (t == "NR")
-    {
-        c.reduce();
-    }
     // No Pass
     else if (t == "NP")
     {
@@ -133,7 +115,7 @@ void ArcEager::apply(Configuration& c, const string& t)
     }
 }
 
-const string ArcEager::get_oracle(
+const string ListSystem::get_oracle(
         Configuration& c,
         DependencyGraph& graph)
 {
@@ -145,37 +127,29 @@ const string ArcEager::get_oracle(
     {
         if ( !c.has_other_child(w, graph)
             && !c.has_other_head(w, graph)){
-            return "LR(" + graph.get_arc_label(w, b) + ")";
+            return "LP(" + graph.get_arc_label(w, b) + ")";
         }
         else{ //has other child or head
-            return "LP(" + graph.get_arc_label(w, b) + ")";
+            return "LA(" + graph.get_arc_label(w, b) + ")";
         }
     }
     else if ( w >= 0 && graph.has_head(b, w) //right arc w -> b
             && !c.has_path_to(b, w))
     {
-            if ( !c.has_other_child_in_stack(b, graph)
-                && !c.has_other_head_in_stack(b, graph)){
-                return "RS(" + graph.get_arc_label(b, w) + ")";
-            }
-            else if (w > 0){
-                return "RP(" + graph.get_arc_label(b, w) + ")";
-            }
+        return "RA(" + graph.get_arc_label(b, w) + ")";
     }
-    else if ( !c.has_other_child_in_stack(b, graph)
+    else if (( !c.has_other_child_in_stack(b, graph)
             && !c.has_other_head_in_stack(b, graph) 
-            && !c.buffer.empty())
+            && !c.buffer.empty()) 
+            || w == Config::NONEXIST)
         return "NS";
-    else if ( !c.has_other_child(w, graph)
-            && !c.lack_head(w, graph))
-        return "NR";
     else if ( w > 0)
         return "NP";
     else
         return "-E-";
 }
 
-bool ArcEager::is_oracle(
+bool ListSystem::is_oracle(
         Configuration& c,
         string& t,
         DependencyGraph& graph)
@@ -184,19 +158,19 @@ bool ArcEager::is_oracle(
     return true;
 }
 
-bool ArcEager::can_process(DependencyGraph& graph)
+bool ListSystem::can_process(DependencyGraph& graph)
 {
     // can process any kinds of trees
     return true;
 }
 
-Configuration ArcEager::init_configuration(DependencySent& sent)
+Configuration ListSystem::init_configuration(DependencySent& sent)
 {
     Configuration c(sent);
     return c;
 }
 
-bool ArcEager::is_terminal(Configuration& c)
+bool ListSystem::is_terminal(Configuration& c)
 {
     return (c.get_buffer_size() == 0);
 }

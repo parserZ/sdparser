@@ -20,6 +20,7 @@ class Cost
         Mat<double> grad_Ed;
         Mat<double> grad_Ev;
         Mat<double> grad_Ec;
+        Mat<double> grad_El;
 
         std::vector< std::vector<int>> dropout_histories;
 
@@ -44,6 +45,7 @@ class Cost
             grad_Ed = c.grad_Ed;
             grad_Ev = c.grad_Ev;
             grad_Ec = c.grad_Ec;
+            grad_El = c.grad_El;
 
             dropout_histories = c.dropout_histories;
         }
@@ -60,6 +62,7 @@ class Cost
             grad_Ed = c.grad_Ed;
             grad_Ev = c.grad_Ev;
             grad_Ec = c.grad_Ec;
+            grad_El = c.grad_El;
 
             dropout_histories = c.dropout_histories;
 
@@ -75,6 +78,7 @@ class Cost
                 Mat<double>& _grad_Ed,
                 Mat<double>& _grad_Ev,
                 Mat<double>& _grad_Ec,
+                Mat<double>& _grad_El,
                 std::vector< std::vector<int>>& _dropout_histories)
         {
             loss = _loss;
@@ -87,6 +91,7 @@ class Cost
             grad_Ed = _grad_Ed;
             grad_Ev = _grad_Ev;
             grad_Ec = _grad_Ec;
+            grad_El = _grad_El;
 
             dropout_histories = _dropout_histories;
         }
@@ -129,6 +134,10 @@ class Cost
         {
             return grad_Ec;
         }
+        Mat<double> get_grad_El()
+        {
+            return grad_El;
+        }
 };
 
 class NNClassifier
@@ -142,6 +151,7 @@ class NNClassifier
                 const Mat<double>& _Ed,
                 const Mat<double>& _Ev,
                 const Mat<double>& _Ec,
+                const Mat<double>& _El,
                 const Mat<double>& _W1,
                 const Vec<double>& _b1,
                 const Mat<double>& _W2,
@@ -152,6 +162,7 @@ class NNClassifier
                 const Mat<double>& _Ed,
                 const Mat<double>& _Ev,
                 const Mat<double>& _Ec,
+                const Mat<double>& _El,
                 const Mat<double>& _W1,
                 const Vec<double>& _b1,
                 const Mat<double>& _W2,
@@ -184,7 +195,8 @@ class NNClassifier
                 Mat<double> & num_grad_Eb,
                 Mat<double> & num_grad_Ed,
                 Mat<double> & num_grad_Ev,
-                Mat<double> & num_grad_Ec);
+                Mat<double> & num_grad_Ec,
+                Mat<double> & num_grad_El);
         double compute_cost();
 
         void take_ada_gradient_step(int Eb_start_pos = 0);
@@ -232,6 +244,7 @@ class NNClassifier
         Mat<double>& get_Ed();
         Mat<double>& get_Ev();
         Mat<double>& get_Ec();
+        Mat<double>& get_El();
 
         void print_info();
 
@@ -242,7 +255,7 @@ class NNClassifier
          * Ev: Embedding matrix for valency features
          * Ec: Embedding matrix for cluster features
          */
-        static Mat<double> W1, W2, Eb, Ed, Ev, Ec;
+        static Mat<double> W1, W2, Eb, Ed, Ev, Ec, El;
         static Vec<double> b1;
 
         /*
@@ -256,7 +269,7 @@ class NNClassifier
         */
         Cost cost;
 
-        Mat<double> eg2W1, eg2W2, eg2Eb, eg2Ed, eg2Ev, eg2Ec;
+        Mat<double> eg2W1, eg2W2, eg2Eb, eg2Ed, eg2Ev, eg2Ec, eg2El;
         Vec<double> eg2b1;
 
         /**

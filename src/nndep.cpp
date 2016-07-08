@@ -23,6 +23,7 @@ typedef struct
     bool   is_test;   // testing mode
     bool   is_cltest; // cross-lingual testing mode
     bool   is_finetune; // cross-lingual fine-tuning mode
+    bool   is_getoracle;
     bool   extract_actseq; // extract oracle sequences only
 
     string train_file;
@@ -34,6 +35,7 @@ typedef struct
     string clemb_file;
     string cfg_file;
     string output_file;
+    string oracle_file;
     int sub_sampling;
 
 } Option;
@@ -88,7 +90,9 @@ void print_usage()
          << "./eagernndep -train data/train.dep -dev data/dev.dep"
          <<        " -model model -emb data/words.emb -cfg nndep.cfg\n"
          << "\nExample(test):\n"
-         << "./eagernndep -test data/test.dep -model model\n\n";
+         << "./eagernndep -test data/test.dep -model model\n\n"
+         << "\nExample(get oracle):\n"
+         << "./eagernndep -train data/test.dep -oracle_file oracle_output_file\n\n";
 }
 
 int arg_pos(char * str, int argc, char ** argv)
@@ -163,6 +167,11 @@ void parse_command_line(int argc, char ** argv)
         opt.output_file = argv[i + 1];
     if ((i = arg_pos((char *)"-sample", argc, argv)) > 0)
         opt.sub_sampling = to_int(argv[i + 1]);
+    if ((i = arg_pos((char *)"-oracle_file",  argc, argv)) > 0)
+    {
+        opt.is_getoracle = true;
+        opt.oracle_file = argv[i + 1];
+    }
 }
 
 int main(int argc, char** argv)
@@ -180,9 +189,16 @@ int main(int argc, char** argv)
     DependencyParser parser(opt.cfg_file);
 
     if (opt.extract_actseq)
-        parser.extract_transition_sequence(opt.train_file);
+        parser.extract_transition_sequence(opt.train_file,opt.oracle_file);
 
     bool loaded = false;
+    if (opt.is_getoracle) 
+    {
+        parser.extract_transition_sequence(opt.train_file, opt.oracle_file);
+        loaded = true;
+        return 0;
+    }
+
     if (opt.is_train)
     {
         parser.train(opt.train_file,

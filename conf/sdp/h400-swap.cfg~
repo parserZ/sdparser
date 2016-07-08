@@ -16,5 +16,7 @@ use_valency=false
 valency_embedding_size=5
 use_cluster=false
 cluster_embedding_size=64
+use_length=true
+length_embgdding_size=1
 language=chinese
 oracle=arceager

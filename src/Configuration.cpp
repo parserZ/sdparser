@@ -16,6 +16,8 @@ Configuration::Configuration(Configuration& c)
 
     lvalency = c.lvalency;
     rvalency = c.rvalency;
+    lhvalency = c.lvalency;
+    rhvalency = c.rvalency;
 }
 
 Configuration::Configuration(DependencySent& s)
@@ -32,6 +34,8 @@ void Configuration::init(DependencySent& s)
 
     lvalency.clear();
     rvalency.clear();
+    lhvalency.clear();
+    rhvalency.clear();
 
     sent = s;
     for (int i = 1; i <= sent.n; ++i)
@@ -46,8 +50,13 @@ void Configuration::init(DependencySent& s)
 
     lvalency.resize(sent.n + 1, 0);
     rvalency.resize(sent.n + 1, 0);
+    lhvalency.resize(sent.n + 1, 0);
+    rhvalency.resize(sent.n + 1, 0);
 
-    stack.push_back(0);
+    //changed here to generate transition sequence for lstm parser
+    //need to change back to push root to stack
+    //stack.push_back(0);
+    buffer.push_back(0);
 }
 
 void Configuration::reset(int k, int b)
@@ -78,7 +87,7 @@ bool Configuration::shift()
 bool Configuration::pass()
 {
     int w = get_stack(0);
-    if (w == 0 || w == Config::NONEXIST) //can not pass root(0)
+    if (w == Config::NONEXIST) //can not pass root(0) -> in listsystem can pass root(0)
         return false;
     pass_buffer.insert(pass_buffer.begin(), w);
     remove_top_stack();
@@ -167,7 +176,8 @@ bool Configuration::find_2nd_head(int k) //node k is stored at k-1
     for (int i = 0; i < snd_heads[k-1].size(); i++){
         if (snd_heads[k-1][i].score > opt_head.score 
             && !has_path_to(k, snd_heads[k-1][i].head))
-            opt_head = snd_heads[k-1][i];
+            if (!(snd_heads[k-1][i].head == 0 && graph.is_single_root()))
+                opt_head = snd_heads[k-1][i];
     }
     if (opt_head.head != -1){
         add_arc(opt_head.head, k, opt_head.label);
@@ -249,7 +259,7 @@ std::vector<int> Configuration::get_dynamic_order()
 int Configuration::get_distance()
 {
     // return abs(get_stack(0) - get_buffer(0));
-    return encode_distance(get_stack(0), get_stack(1));
+    return encode_distance(get_stack(0), get_buffer(0));
 }
 
 int Configuration::encode_distance(const int & h, const int & m)
@@ -341,7 +351,7 @@ string Configuration::get_lvalency(int k)
     if (k < 0 || k > graph.n)
         return Config::UNKNOWN;
 
-    return encode_valency("L", lvalency[k]);
+    return encode_valency("LC", lvalency[k]);
 }
 
 string Configuration::get_lvalency_fc(int k)
@@ -358,7 +368,7 @@ string Configuration::get_lvalency_fc(int k)
                 cnt += 1;
         }
     }
-    return "L" + to_str(cnt);
+    return "LC" + to_str(cnt);
 }
 
 string Configuration::get_rvalency(int k)
@@ -366,7 +376,7 @@ string Configuration::get_rvalency(int k)
     if (k < 0 || k > graph.n)
         return Config::UNKNOWN;
 
-    return encode_valency("R", rvalency[k]);
+    return encode_valency("RC", rvalency[k]);
 }
 
 string Configuration::get_rvalency_fc(int k)
@@ -383,7 +393,23 @@ string Configuration::get_rvalency_fc(int k)
                 cnt += 1;
         }
     }
-    return "R" + to_str(cnt);
+    return "RC" + to_str(cnt);
+}
+
+string Configuration::get_lhvalency(int k)
+{
+    if (k < 0 || k > graph.n)
+        return Config::UNKNOWN;
+
+    return encode_valency("LH", lhvalency[k]);
+}
+
+string Configuration::get_rhvalency(int k)
+{
+    if (k < 0 || k > graph.n)
+        return Config::UNKNOWN;
+
+    return encode_valency("RH", rhvalency[k]);
 }
 
 int Configuration::get_left_child(int k, int cnt)
@@ -665,7 +691,66 @@ bool  Configuration::is_graph()
 
 string Configuration::info()
 {
-    string s = "[S]";
+    string s = "[";
+    if (get_stack_size() >= 1){
+        if (get_stack(0) == 0)
+            s += "ROOT-ROOT";
+        else
+            s += sent.words[get_stack(0) - 1] + "-" + sent.poss[get_stack(0) - 1];
+        for (int i = 1; i < get_stack_size(); ++i){
+            if (get_stack(i) == 0)
+                s += ", ROOT-ROOT";
+            else{
+                s += ", ";
+                s += sent.words[get_stack(i) - 1];
+                s += "-";
+                s += sent.poss[get_stack(i) - 1];
+            }
+        }
+    }
+    s += "]";
+    
+    s += "[";
+    if (get_pass_buffer_size() >= 1){
+        //cerr << get_buffer(0) << endl;
+        if (get_pass_buffer(0) == 0)
+            s += "ROOT-ROOT";
+        else
+            s += sent.words[get_pass_buffer(0) - 1] + "-" + sent.poss[get_pass_buffer(0) - 1];
+        for (int i = 1; i < get_pass_buffer_size(); ++i){
+            if (get_pass_buffer(i) == 0)
+                s += ", ROOT-ROOT";
+            else{
+                s += ", ";
+                s += sent.words[get_pass_buffer(i) - 1];
+                s += "-";
+                s += sent.poss[get_pass_buffer(i) - 1];
+            }
+        }
+    }
+    s += "]";
+
+    s += "[";
+    if (get_buffer_size() >= 1){
+        //cerr << get_buffer(0) << endl;
+        if (get_buffer(0) == 0)
+            s += "ROOT-ROOT";
+        else
+            s += sent.words[get_buffer(0) - 1] + "-" + sent.poss[get_buffer(0) - 1];
+        for (int i = 1; i < get_buffer_size(); ++i){
+            if (get_buffer(i) == 0)
+                s += ", ROOT-ROOT";
+            else{
+                s += ", ";
+                s += sent.words[get_buffer(i) - 1];
+                s += "-";
+                s += sent.poss[get_buffer(i) - 1];
+            }
+        }
+    }
+    s += "]";
+
+    /*string s = "[S]";
     for (int i = 0; i < get_stack_size(); ++i)
     {
         if (i > 0)
@@ -687,7 +772,7 @@ string Configuration::info()
         if (i > 0)
             s.append(",");
         s += to_str(pass_buffer[i]);
-    }
+    }*/
 
     /*
     s.append("\n[H]");

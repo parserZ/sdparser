@@ -48,17 +48,18 @@ void Config::init()
     phidden_size            = 50;
     embedding_size          = 50;
 
-    num_tokens              = 44;
+    num_tokens              = 71;
 
-    num_basic_tokens        = 44;
+    num_basic_tokens        = 46;
     num_const_tokens        = 0;
-    num_word_tokens         = 16;
-    num_pos_tokens          = 16;
+    num_word_tokens         = 17;
+    num_pos_tokens          = 17;
     num_label_tokens        = 12;
 
     num_dist_tokens         = 1;
-    num_valency_tokens      = 3;
-    num_cluster_tokens      = 18;
+    num_valency_tokens      = 6;
+    num_cluster_tokens      = 17;
+    num_length_tokens      = 1; //size of pass buffer
 
     num_pre_computed        = 100000;
     eval_per_iter           = 100;
@@ -75,6 +76,8 @@ void Config::init()
     valency_embedding_size  = 10;
     use_cluster             = false;
     cluster_embedding_size  = 50;
+    use_length             = false;
+    length_embedding_size  = 10;
 
     use_postag              = true;
 
@@ -87,6 +90,7 @@ void Config::init()
     compose_activation      = 0;
 
     debug                   = false;
+    print_oracle = true;
 }
 
 void Config::set_properties(const char * filename)
@@ -146,6 +150,7 @@ void Config::set_properties(const char * filename)
     cfg_set_int(props, "distance_embedding_size",   distance_embedding_size);
     cfg_set_int(props, "valency_embedding_size",    valency_embedding_size);
     cfg_set_int(props, "cluster_embedding_size",    cluster_embedding_size);
+    cfg_set_int(props, "length_embedding_size",    length_embedding_size);
     cfg_set_int(props, "compose_embedding_size",    compose_embedding_size);
     cfg_set_int(props, "num_compose_tokens",        num_compose_tokens);
     cfg_set_int(props, "max_compose_layers",        max_compose_layers);
@@ -165,10 +170,12 @@ void Config::set_properties(const char * filename)
     cfg_set_boolean(props, "use_distance",          use_distance);
     cfg_set_boolean(props, "use_valency",           use_valency);
     cfg_set_boolean(props, "use_cluster",           use_cluster);
+    cfg_set_boolean(props, "use_length",           use_length);
     cfg_set_boolean(props, "use_pretrained",        use_pretrained);
     cfg_set_boolean(props, "debug",                 debug);
     cfg_set_boolean(props, "compose_weighted",      compose_weighted);
     cfg_set_boolean(props, "compose_by_position",   compose_by_position);
+    cfg_set_boolean(props, "print_oracle",                 print_oracle);
     // cfg_set_boolean(props, "use_postag",            use_postag);
 
     if (props.find("language") != props.end())
@@ -186,12 +193,14 @@ void Config::set_properties(const char * filename)
     if (!use_distance) num_dist_tokens = 0;
     if (!use_valency)  num_valency_tokens = 0;
     if (!use_cluster)  num_cluster_tokens = 0;
+    if (!use_length)  num_length_tokens = 0;
 
     assert (num_tokens == num_basic_tokens
                             + num_const_tokens
                             + num_dist_tokens
                             + num_valency_tokens
-                            + num_cluster_tokens);
+                            + num_cluster_tokens
+                            + num_length_tokens);
 }
 
 void Config::cfg_set_int(
@@ -258,6 +267,7 @@ void Config::print_info()
     cerr << "num_dist_tokens         = " << num_dist_tokens         << endl;
     cerr << "num_valency_tokens      = " << num_valency_tokens      << endl;
     cerr << "num_cluster_tokens      = " << num_cluster_tokens      << endl;
+    cerr << "num_length_tokens      = " << num_length_tokens      << endl;
     cerr << "num_pre_computed        = " << num_pre_computed        << endl;
     cerr << "eval_per_iter           = " << eval_per_iter           << endl;
     cerr << "save_intermediate       = " << save_intermediate       << endl;
@@ -270,10 +280,12 @@ void Config::print_info()
     cerr << "use_distance            = " << use_distance            << endl;
     cerr << "use_valency             = " << use_valency             << endl;
     cerr << "use_cluster             = " << use_cluster             << endl;
+    cerr << "use_length            = " << use_length            << endl;
     cerr << "use_postag              = " << use_postag              << endl;
     cerr << "distance_embedding_size = " << distance_embedding_size << endl;
     cerr << "valency_embedding_size  = " << valency_embedding_size  << endl;
     cerr << "cluster_embedding_size  = " << cluster_embedding_size  << endl;
+    cerr << "length_embedding_size  = " << length_embedding_size  << endl;
 
     cerr << "num_compose_tokens      = " << num_compose_tokens      << endl;
     cerr << "compose_embedding_size  = " << compose_embedding_size  << endl;
@@ -282,6 +294,8 @@ void Config::print_info()
     cerr << "max_compose_layers      = " << max_compose_layers      << endl;
     cerr << "compose_activation      = " << compose_activation      << endl;
 
+    cerr << "print_oracle                   = " << print_oracle                   << endl;
+    cerr << "oracle_file                   = " << oracle_file                   << endl;
     cerr << "debug                   = " << debug                   << endl;
 }
 
@@ -294,6 +308,7 @@ int Config::get_embedding_size(int feat_type)
         case DIST_FEAT:    return distance_embedding_size;
         case VALENCY_FEAT: return valency_embedding_size;
         case CLUSTER_FEAT: return cluster_embedding_size;
+        case LENGTH_FEAT: return length_embedding_size;
         default:
             cerr << "Weird!" << endl;
             return embedding_size;
@@ -333,6 +348,16 @@ int Config::get_offset(int pos)
                        - num_dist_tokens
                        - num_valency_tokens) * cluster_embedding_size;
             break;
+        case LENGTH_FEAT:
+            offset = num_basic_tokens * embedding_size
+                + num_dist_tokens * distance_embedding_size
+                + num_valency_tokens * valency_embedding_size
+                + num_cluster_tokens * cluster_embedding_size
+                + (pos - num_basic_tokens
+                       - num_dist_tokens
+                       - num_valency_tokens
+                       - num_cluster_tokens) * length_embedding_size;
+            break;
         default: break;
     }
 
@@ -356,8 +381,11 @@ int Config::get_feat_type(int j)
     else if (use_valency &&
             (pos < num_basic_tokens + num_dist_tokens + num_valency_tokens))
         return VALENCY_FEAT;
-    else if (use_cluster)
+    else if (use_cluster &&
+            (pos < num_basic_tokens + num_dist_tokens + num_valency_tokens + num_cluster_tokens))
         return CLUSTER_FEAT;
+    else if (use_length)
+        return LENGTH_FEAT;
     else
         return NONEXIST;
 }

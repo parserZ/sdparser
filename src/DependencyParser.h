@@ -48,8 +48,8 @@ class DependencyParser
                 std::string & emb_file,
                 int sub_sampling = -1);
 
-        void extract_transition_sequence(std::string & train_file);
-        void extract_transition_sequence(const char * train_file);
+        void extract_transition_sequence(std::string & train_file, std::string & oracle_file);
+        void extract_transition_sequence(const char * train_file, const char *oracle_file);
 
         /**
          * if re_precompute is true, then do precomputing
@@ -119,6 +119,7 @@ class DependencyParser
         int get_valency_id(const std::string & v);
 
         int get_cluster_id(const std::string & c);
+        int get_length_id(const int & d);
 
         void process_headless(Configuration& c);
         void process_headless_search_all(int k, std::vector<Snd_head>& cand_2nd_heads, Configuration& c, int dir);
@@ -133,6 +134,7 @@ class DependencyParser
         std::vector<std::string> known_labels;
 
         std::vector<int> known_distances;
+        std::vector<int> known_lengths;
         std::vector<std::string> known_valencies;
         std::vector<std::string> known_clusters;
 
@@ -141,6 +143,7 @@ class DependencyParser
         std::unordered_map<std::string, int> label_ids;
 
         std::unordered_map<int, int> distance_ids;
+        std::unordered_map<int, int> length_ids;
         std::unordered_map<std::string, int> valency_ids;
 
         std::unordered_map<std::string, int> cluster_ids;

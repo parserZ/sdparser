@@ -16,6 +16,7 @@ class Config
         static const int VALENCY_FEAT = 2;
         static const int CLUSTER_FEAT = 3;
         static const int CONST_FEAT = 4;
+        static const int LENGTH_FEAT = 5;
 
         /**
          * for printing message
@@ -68,6 +69,7 @@ class Config
         int num_dist_tokens; // 1
         int num_valency_tokens; // 3
         int num_cluster_tokens; // 14
+        int num_length_tokens; // 1
 
         int num_pre_computed;
 
@@ -80,6 +82,8 @@ class Config
          */
         int clear_gradient_per_iter;
 
+        std::string oracle_file;
+        bool print_oracle;
         /**
          * save model whenver we see an improved UAS evaluation
          */
@@ -127,6 +131,12 @@ class Config
          */
         bool use_cluster;
         int cluster_embedding_size;
+
+        /**
+         * whether use pass buffer size feature
+         */
+        bool use_length;
+        int length_embedding_size;
 
         /**
          * whether use postag feature

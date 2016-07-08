@@ -3,6 +3,8 @@ include_directories (./utils)
 set (clnndep_SRC
      ArcEager.cpp
      ArcEager.h
+     ListSystem.cpp
+     ListSystem.h
      Classifier.cpp
      Classifier.h
      Config.cpp
